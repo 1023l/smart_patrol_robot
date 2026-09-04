@@ -1,0 +1,11 @@
+<library path="nav2_gradient_planner">
+  <class name="nav2_gradient_planner/GradientAStarPlanner"
+         type="nav2_gradient_planner::GradientAStarPlanner"
+         base_class_type="nav2_core::GlobalPlanner">
+    <description>
+      梯度感知 A* 全局规划器：栅格通行代价取膨胀层连续代价值按权重叠加，
+      使搜索出的路径在可通行区域内主动远离高危障碍物；支持容差搜索与
+      未知区域处理。
+    </description>
+  </class>
+</library>
