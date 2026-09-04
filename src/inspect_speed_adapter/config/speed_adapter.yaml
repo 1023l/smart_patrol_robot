@@ -1,0 +1,27 @@
+# 七扇区调速节点参数（数值为 0.5m/s 巡检机器人默认值，现场按标定调整）
+seven_sector_speed:
+  ros__parameters:
+    # 环境分类门槛（米）
+    corridor_threshold: 1.2      # 左右两侧同近 → 窄通道
+    corner_threshold: 1.0        # 前方受阻 → 拐角
+    danger_threshold: 0.45      # 前方+侧向多扇区近距 → 密集/人流
+    effective_max_range: 6.0      # 激光有效感知距离封顶
+
+    # 防抖与平滑
+    confirm_scans: 3             # 状态切换所需连续一致帧数
+    publish_period: 0.1          # 限速发布周期（秒）
+    max_step_percent: 20.0       # 限速变化率上限（%/s）
+
+    # 各环境状态目标限速（百分比，作用于 TEB max_vel_x / max_vel_theta）
+    limit_open: 100.0
+    limit_corridor: 55.0
+    limit_corner: 40.0
+    limit_dense: 25.0
+    limit_unknown: 60.0          # 感知异常回退限速
+
+# 导航指标观测节点参数
+nav_metrics:
+  ros__parameters:
+    metrics_period: 1.0            # 指标发布周期（秒）
+    freeze_vel_threshold: 0.03    # 零速判定阈值
+    freeze_active_only: true      # 仅统计任务执行期间的冻结

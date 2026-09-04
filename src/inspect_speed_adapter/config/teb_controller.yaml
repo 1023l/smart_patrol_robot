@@ -1,0 +1,78 @@
+# =====================================================================
+# TEB 局部控制器调参记录 —— 消除终点震荡
+# ---------------------------------------------------------------------
+# 震荡根因定位（面试重点，按排查顺序讲）：
+#
+# 根因1【主因】减速能力与目标容差不匹配：
+#   acc_lim_x 原值 0.3 远低于机器人实际减速能力，TEB 在局部轨迹末端
+#   才规划"急刹"，机器人惯性冲过 xy_goal_tolerance 圈 → 目标项把
+#   机器人拉回 → 再次冲过，形成极限环式振荡。
+#   修复：acc_lim_x 提到 0.5 匹配实机，同时 xy_goal_tolerance 从
+#   0.05 放宽到 0.15，"刹得住 + 判定圈够大"双管齐下。
+#
+# 根因2【次因】目标附近障碍项与目标项冲突：
+#   巡检点普遍贴墙打点，min_obstacle_dist 原值 0.25 与膨胀层重叠，
+#   终点附近障碍斥力与目标引力博弈，轨迹在目标前反复横跳。
+#   修复：min_obstacle_dist 提到 0.35（> 半径 0.22 + 裕量），
+#   inflation_dist 0.6 给出连续过渡区，消除二值突变。
+#
+# 根因3【辅因】权重失衡放大微小误差：
+#   weight_acc_lim_x 原值 0.5 过低，速度约束项压不住加速度约束项，
+#   减速轨迹"不坚决"。修复：weight_acc_lim_x 1.5 与
+#   weight_max_vel_x 2.0 形成梯度，末端减速曲线单调无过冲。
+#
+# 验证方式：nav_metrics_node 的 freeze_max_s（终点附近零速抖动会被
+# 冻结检测捕捉）+ path_smoothness 前后对比。
+#
+# 注：本文件是 controller_server.FollowPath 段的参考配置，
+#     最终合并进 inspect_navigation 的 nav2_params.yaml。
+# =====================================================================
+FollowPath:
+  teb_autosize: true                 # 允许优化器自动调整轨迹分辨率
+  dt_ref: 0.3                        # 期望轨迹点时间间隔（秒）
+  dt_hysteresis: 0.1                 # 分辨率调整滞后带，防抖
+  max_samples: 500                    # 轨迹最大采样数，限制优化规模
+  global_plan_overwrite_orientation: true   # 覆写全局路径朝向（切线朝向由规划器给出）
+
+  # ---- 速度与加速度约束（消除终点震荡的核心段）----
+  max_vel_x: 0.5                      # 最大线速度（七扇区调速按百分比缩放此值）
+  max_vel_x_backwards: 0.2            # 最大倒车速度，脱困行为树用
+  max_vel_y: 0.0                      # 差速模型无横移
+  max_vel_theta: 1.2                  # 最大角速度（同样受 speed_limit 百分比缩放）
+  acc_lim_x: 0.5                      # 【根因1修复】匹配实机减速能力，杜绝末端急刹过冲
+  acc_lim_theta: 1.5                  # 角加速度限制
+  min_turning_radius: 0.0             # 差速底盘原地转向，转弯半径为 0
+
+  # ---- 目标容差 ----
+  xy_goal_tolerance: 0.15             # 【根因1修复】0.05 → 0.15，配合减速能力消除极限环
+  yaw_goal_tolerance: 0.2             # 朝向容差放宽，避免终点原地反复旋转对准
+  free_goal: false                    # 目标状态固定，不随轨迹自由漂移
+
+  # ---- 机器人模型 ----
+  footprint_model:
+    type: "circular"
+    radius: 0.22                      # 与 costmap robot_radius 保持一致
+
+  # ---- 障碍约束（根因2修复段）----
+  min_obstacle_dist: 0.35             # 【根因2修复】> 半径+裕量，避免终点障碍项冲突
+  inflation_dist: 0.6                 # 连续过渡区，消除二值突变引起的横跳
+  include_costmap_obstacles: true     # 代价地图中的动态障碍纳入优化
+  costmap_obstacles_behind_robot_dist: 1.0
+  obstacle_poses_affected: 30         # 每个障碍影响附近 30 个轨迹点
+
+  # ---- 优化权重（根因3修复段）----
+  weight_max_vel_x: 2.0               # 速度约束权重
+  weight_max_vel_theta: 1.0
+  weight_acc_lim_x: 1.5               # 【根因3修复】0.5 → 1.5，末端减速曲线单调无过冲
+  weight_acc_lim_theta: 1.0
+  weight_kinematics_nh: 1000.0        # 非完整约束硬约束化，禁止横移轨迹
+  weight_kinematics_forward_drive: 1.0
+  weight_kinematics_turning_radius: 1.0
+  weight_optimaltime: 1.0            # 时间最优，驱动减速时机前移
+  weight_shortest_path: 0.0
+  weight_obstacle: 100.0
+  weight_inflation: 0.2               # 膨胀区惩罚温和，避免过度绕行
+  weight_viapoint: 1.0                # 全局路径贴合权重，防止局部轨迹大幅偏离
+
+  # ---- 振荡恢复 ----
+  oscillation_recovery: true          # TEB 内建振荡检测恢复
