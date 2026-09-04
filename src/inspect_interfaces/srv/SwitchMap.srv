@@ -1,0 +1,5 @@
+# 楼层切换服务：多楼层巡检时切换子地图并在电梯口触发 AMCL 重定位
+uint8 target_floor
+---
+bool success
+string message
