@@ -1,0 +1,78 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.7
+      Class: rviz_default_plugins/Map
+      Color Scheme: map
+      Enabled: true
+      Name: Map
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map
+    - Alpha: 0.4
+      Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+      Value: true
+    - Class: rviz_default_plugins/RobotModel
+      Description Source: Topic
+      Description Topic:
+        Value: /robot_description
+      Enabled: true
+      Name: RobotModel
+    - Angle Tolerance: 0.1
+      Class: rviz_default_plugins/Odometry
+      Enabled: true
+      Name: Odometry
+      Topic:
+        Value: /odom
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: GlobalPath
+      Topic:
+        Value: /plan
+    - Alpha: 0.3
+      Class: rviz_default_plugins/Costmap
+      Enabled: true
+      Name: LocalCostmap
+      Topic:
+        Value: /local_costmap/costmap
+    - Alpha: 0.3
+      Class: rviz_default_plugins/Costmap
+      Enabled: true
+      Name: GlobalCostmap
+      Topic:
+        Value: /global_costmap/costmap
+    - Class: rviz_default_plugins/LaserScan
+      Enabled: true
+      Name: LaserScan
+      Topic:
+        Value: /scan
+  Global Options:
+    Fixed Frame: map
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Measure
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 25
+      Focal Point:
+        X: 10
+        Y: 10
+        Z: 0
+      Name: Current View
+      Pitch: 0.8
+      Yaw: 4.7
+Window Geometry:
+  Height: 900
+  Width: 1400

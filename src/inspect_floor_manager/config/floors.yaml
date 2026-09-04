@@ -1,0 +1,35 @@
+# 楼层配置：五层工业厂房采用分层独立子地图架构。
+# 每层对应一张独立栅格地图（map 为地图 yaml 文件名，位于 maps_dir 目录下）；
+# elevator 为该层电梯出入口位姿（map 坐标系，yaw 单位为弧度），
+# 用于切换楼层后在电梯口发布初始位姿触发 AMCL 重定位。
+floors:
+  1:
+    map: "floor1.yaml"
+    elevator:
+      x: 1.5
+      y: 1.5
+      yaw: 0.0
+  2:
+    map: "floor2.yaml"
+    elevator:
+      x: 1.6
+      y: 1.4
+      yaw: 1.57
+  3:
+    map: "floor3.yaml"
+    elevator:
+      x: 1.5
+      y: 1.5
+      yaw: 0.0
+  4:
+    map: "floor4.yaml"
+    elevator:
+      x: 1.4
+      y: 1.6
+      yaw: 3.14
+  5:
+    map: "floor5.yaml"
+    elevator:
+      x: 1.5
+      y: 1.5
+      yaw: 0.0
