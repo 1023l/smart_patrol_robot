@@ -1,0 +1,10 @@
+<library path="nav2_keepout_layer">
+  <class name="nav2_keepout_layer/KeepoutLayer"
+         type="nav2_keepout_layer::KeepoutLayer"
+         base_class_type="nav2_costmap_2d::Layer">
+    <description>
+      多边形禁区代价地图层：YAML 静态配置 + 话题动态增删，射线法
+      栅格-禁区碰撞检测，补齐玻璃墙体激光穿透造成的虚拟障碍缺失。
+    </description>
+  </class>
+</library>

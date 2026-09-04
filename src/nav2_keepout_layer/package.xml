@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>nav2_keepout_layer</name>
+  <version>0.1.0</version>
+  <description>
+    KeepOutZone 禁区代价地图层插件：针对激光雷达穿透玻璃墙体产生栅格
+    空洞、虚拟障碍物缺失问题，基于多边形禁区补齐虚拟障碍。支持 YAML
+    静态配置与 ROS 话题动态增删，使用射线法完成栅格-禁区碰撞检测。
+  </description>
+  <maintainer email="dev@example.com">inspect navigation</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav2_costmap_2d</depend>
+  <depend>nav2_util</depend>
+  <depend>pluginlib</depend>
+  <depend>inspect_interfaces</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <nav2_costmap_2d plugin="${prefix}/keepout_layer_plugin.xml"/>
+  </export>
+</package>
