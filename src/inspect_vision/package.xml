@@ -1,20 +1,20 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>inspect_floor_manager</name>
+  <name>inspect_vision</name>
   <version>0.1.0</version>
-  <description>工业厂房跨楼层巡检管理：分层子地图切换、电梯口 AMCL 重定位与跨楼层巡逻任务</description>
+  <description>到点视觉巡检：抓图、OpenCV/可选YOLO检测、结果落盘与服务接口</description>
   <maintainer email="inspect@example.com">inspect</maintainer>
   <license>Apache-2.0</license>
 
   <depend>rclpy</depend>
-  <depend>geometry_msgs</depend>
-  <depend>nav2_msgs</depend>
-  <depend>nav_msgs</depend>
-  <depend>std_srvs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>cv_bridge</depend>
   <depend>inspect_interfaces</depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
-  <exec_depend>inspect_vision</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

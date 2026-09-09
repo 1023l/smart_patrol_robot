@@ -1,9 +1,9 @@
-"""跨楼层巡逻任务节点：按楼层顺序执行巡检点导航，并联动楼层切换。
+"""跨楼层巡逻任务节点：导航到巡检点后触发视觉巡检。
 
 流程说明：
-    读取每层的巡检点配置，逐点调用 Nav2 的 NavigateToPose 动作完成导航；
-    一层全部巡检点完成后调用 /switch_floor 切换到下一层，
-    楼层按 1→2→3→4→5→1 循环，全部轮次结束后打印任务统计。
+    读取每层的巡检点配置，逐点调用 Nav2 NavigateToPose；
+    到点成功后调用 /inspect_point 做视觉检测并落盘；
+    一层完成后调用 /switch_floor 切到下一层（1→2→3→4→5 循环）。
 """
 
 import math
@@ -12,7 +12,7 @@ import time
 
 import rclpy
 import yaml
-from inspect_interfaces.srv import SwitchMap
+from inspect_interfaces.srv import InspectPoint, SwitchMap
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 from rclpy.action.goal_status import GoalStatus
@@ -20,19 +20,17 @@ from rclpy.node import Node
 
 
 class PatrolMissionNode(Node):
-    """跨楼层巡逻任务节点。"""
+    """跨楼层巡逻 + 到点视觉巡检。"""
 
     def __init__(self):
         super().__init__('patrol_mission')
 
-        # 巡检点配置 yaml 路径
         self.declare_parameter('patrol_points_config', '')
-        # 巡逻轮数（完整遍历一遍全部楼层记为一轮）
         self.declare_parameter('rounds', 2)
-        # 单个巡检点导航超时时间（秒）
         self.declare_parameter('single_point_timeout', 120.0)
-        # 楼层切换服务调用超时时间（秒）
         self.declare_parameter('switch_floor_timeout', 30.0)
+        self.declare_parameter('enable_vision', True)
+        self.declare_parameter('inspect_timeout', 15.0)
 
         config_path = self.get_parameter(
             'patrol_points_config').get_parameter_value().string_value
@@ -41,17 +39,18 @@ class PatrolMissionNode(Node):
             'single_point_timeout').get_parameter_value().double_value)
         self._switch_timeout = float(self.get_parameter(
             'switch_floor_timeout').get_parameter_value().double_value)
+        self._enable_vision = bool(
+            self.get_parameter('enable_vision').get_parameter_value().bool_value)
+        self._inspect_timeout = float(self.get_parameter(
+            'inspect_timeout').get_parameter_value().double_value)
 
-        # 读取巡检点配置：{楼层号: [{name, x, y, yaw}, ...]}
         self._patrol_points = self._load_patrol_points(config_path)
 
-        # NavigateToPose 动作客户端（Nav2 导航）
         self._nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
-        # 楼层切换服务客户端
         self._switch_client = self.create_client(SwitchMap, '/switch_floor')
+        self._inspect_client = self.create_client(InspectPoint, '/inspect_point')
 
     def _load_patrol_points(self, config_path):
-        """读取巡检点配置 yaml，返回 {楼层号: [巡检点字典列表]} 形式的数据。"""
         if not config_path:
             raise RuntimeError('参数 patrol_points_config 未配置，无法加载巡检点')
         if not os.path.isfile(config_path):
@@ -74,6 +73,7 @@ class PatrolMissionNode(Node):
                     'x': float(point['x']),
                     'y': float(point['y']),
                     'yaw': float(point.get('yaw', 0.0)),
+                    'task': str(point.get('task', 'gauge')),
                 })
             if point_list:
                 points_map[floor_id] = point_list
@@ -83,16 +83,18 @@ class PatrolMissionNode(Node):
         return points_map
 
     def run_patrol(self):
-        """执行跨楼层巡逻主流程，全部结束后打印统计信息。"""
         total_count = 0
-        success_count = 0
-        failed_count = 0
+        nav_success = 0
+        nav_failed = 0
+        inspect_normal = 0
+        inspect_abnormal = 0
+        inspect_unknown = 0
         start_time = time.monotonic()
 
-        # 楼层顺序（1→2→3→4→5，跨轮时自然衔接 5→1 的回环切换）
         floor_sequence = sorted(self._patrol_points.keys())
         self.get_logger().info(
-            '巡逻任务开始：楼层顺序 %s，共 %d 轮' % (floor_sequence, self._rounds))
+            '巡逻任务开始：楼层顺序 %s，共 %d 轮，视觉巡检=%s' % (
+                floor_sequence, self._rounds, self._enable_vision))
 
         current_floor = None
         for round_index in range(1, self._rounds + 1):
@@ -101,42 +103,55 @@ class PatrolMissionNode(Node):
             for floor in floor_sequence:
                 points = self._patrol_points[floor]
 
-                # 目标楼层与当前楼层不一致时，先切换楼层
                 if current_floor != floor:
                     ok, message = self._switch_floor(floor)
                     if not ok:
-                        # 切层失败：该层全部巡检点记为失败，继续下一层
                         self.get_logger().error(
                             '切换到楼层 %d 失败：%s，跳过该层 %d 个巡检点' % (
                                 floor, message, len(points)))
                         total_count += len(points)
-                        failed_count += len(points)
+                        nav_failed += len(points)
                         continue
                     current_floor = floor
                     self.get_logger().info('已切换到楼层 %d' % floor)
 
-                # 逐点导航
                 for point in points:
                     total_count += 1
                     self.get_logger().info(
-                        '开始导航：楼层 %d 巡检点 %s (%.2f, %.2f, yaw=%.2f)' % (
-                            floor, point['name'], point['x'], point['y'], point['yaw']))
-                    if self._navigate_to_point(point):
-                        success_count += 1
-                        self.get_logger().info('巡检点 %s 导航成功' % point['name'])
-                    else:
-                        failed_count += 1
+                        '开始导航：楼层 %d 巡检点 %s (%.2f, %.2f, yaw=%.2f, task=%s)' % (
+                            floor, point['name'], point['x'], point['y'],
+                            point['yaw'], point['task']))
+                    if not self._navigate_to_point(point):
+                        nav_failed += 1
                         self.get_logger().warn('巡检点 %s 导航失败' % point['name'])
+                        continue
+
+                    nav_success += 1
+                    self.get_logger().info('巡检点 %s 导航成功' % point['name'])
+
+                    if not self._enable_vision:
+                        continue
+                    status, message = self._inspect_point(floor, point)
+                    if status == 'NORMAL':
+                        inspect_normal += 1
+                    elif status == 'ABNORMAL':
+                        inspect_abnormal += 1
+                    else:
+                        inspect_unknown += 1
+                    self.get_logger().info(
+                        '视觉巡检 %s => %s (%s)' % (point['name'], status, message))
+
             self.get_logger().info(
                 '========== 第 %d 轮巡逻结束 ==========' % round_index)
 
         elapsed = time.monotonic() - start_time
         self.get_logger().info(
-            '巡逻任务全部结束，统计：总任务数=%d，成功=%d，失败=%d，总耗时=%.1f 秒' % (
-                total_count, success_count, failed_count, elapsed))
+            '巡逻任务全部结束：总点=%d 导航成功=%d 导航失败=%d '
+            '检测正常=%d 异常=%d 未知=%d 耗时=%.1fs' % (
+                total_count, nav_success, nav_failed,
+                inspect_normal, inspect_abnormal, inspect_unknown, elapsed))
 
     def _switch_floor(self, target_floor):
-        """调用 /switch_floor 服务切换楼层，返回 (是否成功, 说明信息) 元组。"""
         if not self._switch_client.wait_for_service(timeout_sec=10.0):
             return False, '/switch_floor 服务不可用：请确认 floor_manager 节点已启动'
 
@@ -152,9 +167,24 @@ class PatrolMissionNode(Node):
             return False, response.message
         return True, response.message
 
+    def _inspect_point(self, floor, point):
+        if not self._inspect_client.wait_for_service(timeout_sec=5.0):
+            return 'UNKNOWN', '/inspect_point 不可用（可先启动 inspect_vision）'
+
+        request = InspectPoint.Request()
+        request.point_name = point['name']
+        request.floor = int(floor)
+        request.task = point.get('task', 'gauge')
+        future = self._inspect_client.call_async(request)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=self._inspect_timeout)
+        response = future.result()
+        if response is None:
+            return 'UNKNOWN', '调用 /inspect_point 超时'
+        if not response.success:
+            return 'UNKNOWN', response.message
+        return response.status, response.message
+
     def _navigate_to_point(self, point):
-        """向 Nav2 发送 NavigateToPose 目标并等待结果，返回该点是否导航成功。"""
-        # 等待导航动作服务器就绪
         if not self._nav_client.wait_for_server(timeout_sec=10.0):
             self.get_logger().error('NavigateToPose 动作服务器不可用：navigate_to_pose')
             return False
@@ -166,17 +196,14 @@ class PatrolMissionNode(Node):
         goal.pose.pose.position.y = float(point['y'])
         goal.pose.pose.position.z = 0.0
 
-        # yaw（绕 z 轴旋转）转四元数
         half_yaw = float(point['yaw']) * 0.5
         goal.pose.pose.orientation.x = 0.0
         goal.pose.pose.orientation.y = 0.0
         goal.pose.pose.orientation.z = math.sin(half_yaw)
         goal.pose.pose.orientation.w = math.cos(half_yaw)
 
-        # 单点总超时控制：从发送目标开始计时
         start_time = time.monotonic()
 
-        # 发送目标并等待动作服务器接受
         send_future = self._nav_client.send_goal_async(goal)
         remaining = self._point_timeout - (time.monotonic() - start_time)
         rclpy.spin_until_future_complete(self, send_future, timeout_sec=max(remaining, 0.0))
@@ -189,14 +216,12 @@ class PatrolMissionNode(Node):
             self.get_logger().error('导航目标被拒绝')
             return False
 
-        # 等待导航执行结果
         result_future = goal_handle.get_result_async()
         remaining = self._point_timeout - (time.monotonic() - start_time)
         rclpy.spin_until_future_complete(self, result_future, timeout_sec=max(remaining, 0.0))
 
         result = result_future.result()
         if result is None:
-            # 执行超时：取消该目标，避免影响后续任务
             self.get_logger().error(
                 '导航执行超时（%.0f 秒），已取消该目标' % self._point_timeout)
             goal_handle.cancel_goal_async()
@@ -206,7 +231,6 @@ class PatrolMissionNode(Node):
 
 
 def main(args=None):
-    """节点入口：构造巡逻节点并执行巡逻流程。"""
     rclpy.init(args=args)
     node = PatrolMissionNode()
     try:

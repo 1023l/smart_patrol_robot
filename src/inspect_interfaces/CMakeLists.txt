@@ -10,8 +10,11 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   # 禁区管理：静态 YAML 加载 + 运行期话题动态增删共用
   "msg/KeepoutZone.msg"
+  # 到点视觉巡检结果
+  "msg/InspectResult.msg"
   "srv/SwitchMap.srv"
-  DEPENDENCIES geometry_msgs std_msgs
+  "srv/InspectPoint.srv"
+  DEPENDENCIES geometry_msgs std_msgs builtin_interfaces
 )
 
 ament_export_dependencies(rosidl_default_runtime)

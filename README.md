@@ -1,7 +1,7 @@
 # 工业巡检机器人导航系统（inspect_ws）
 
 面向 5 层工业厂房全自动巡检场景，基于 ROS2 Humble + Nav2 的轮式机器人
-导航系统。针对厂房玻璃墙体激光穿透、窄通道易卡死、人流动态干扰、
+导航 + 到点视觉检测系统。针对厂房玻璃墙体激光穿透、窄通道易卡死、人流动态干扰、
 跨电梯多楼层定位漂移四大量产痛点，对 Nav2 框架做多模块 C++ 深度二次开发
 与工程落地优化。
 
@@ -13,9 +13,10 @@
 | `nav2_keepout_layer` | C++ | KeepOutZone 禁区代价地图层插件（YAML 静态多边形 + 话题动态增删，射线法栅格-禁区碰撞检测，补齐玻璃穿透虚拟障碍） |
 | `inspect_speed_adapter` | C++ | 七扇区自适应调速（Nav2 speed_limit 标准接口作用于 TEB）+ 导航指标观测（规划时延/任务完成率/路径平滑度/冻结检测）+ TEB 终点震荡调参记录 |
 | `inspect_navigation` | 配置 | Nav2 全量参数集成 + 四级递进脱困行为树 + 5 层厂房地图生成器 + 启动文件 |
-| `inspect_floor_manager` | Python | 多楼层切换（load_map 服务）+ 电梯口 AMCL 重定位 + 跨层巡检任务编排 |
+| `inspect_floor_manager` | Python | 多楼层切换（load_map 服务）+ 电梯口 AMCL 重定位 + 跨层巡检任务编排（到点后调用视觉） |
+| `inspect_vision` | Python | 到点视觉巡检（抓图/合成图 → OpenCV 规则或可选 YOLO → 结果落盘） |
 | `inspect_rl_avoidance` | Python | PPO 强化学习动态避障（PyBullet/Gymnasium 训练 → ONNX 推理）+ 代价地图安全盾 + 速度选择器 |
-| `inspect_interfaces` | msg/srv | KeepoutZone 禁区消息 + SwitchMap 楼层切换服务 |
+| `inspect_interfaces` | msg/srv | KeepoutZone / InspectResult 消息 + SwitchMap / InspectPoint 服务 |
 
 ## 架构数据流
 
@@ -35,14 +36,17 @@ KeepoutZone禁区层 ◄── keepout_zones话题            /cmd_vel_rl ──
 （玻璃穿透虚拟障碍补齐，                                    (rl_active 心搏超时回退传统控制器)
   静态YAML + 动态增删）
 
-跨楼层：patrol_mission ──► /switch_floor ──► floor_manager
-              ──► load_map(分层子地图) ──► /initialpose(电梯口AMCL重定位)
+跨楼层巡检：
+  patrol_mission ──► /switch_floor ──► floor_manager ──► load_map + /initialpose
+                 ──► NavigateToPose 到点
+                 ──► /inspect_point ──► inspect_vision（检测 + /tmp/inspect_results 落盘）
 ```
 
 ## 构建与运行
 
 ```bash
 # 0. 前置：Ubuntu 22.04 + ROS2 Humble + Nav2 + Gazebo Classic
+#    推荐：WSL2 Ubuntu-22.04（本仓库按 Humble 编写）
 #    仿真机器人模型复用鱼香ROS教程 fishbot_description（差速底盘+360°雷达）
 
 # 1. 生成 5 层厂房地图（需要 numpy）
@@ -60,11 +64,21 @@ ros2 launch inspect_navigation gazebo_sim.launch.py
 # 4. 启动导航系统（含规划器/keepout层/TEB/四级脱困BT/七扇区调速/指标/楼层管理）
 ros2 launch inspect_navigation inspect_navigation.launch.py floor:=1
 
-# 5. （可选）启动 RL 混合避障（需先训练并导出 ONNX 模型到 config/）
+# 5. 启动到点视觉巡检（无相机时自动用合成图，保证闭环可演示）
+ros2 launch inspect_vision inspect_vision.launch.py
+
+# 6. （可选）启动 RL 混合避障（需先训练并导出 ONNX 模型到 config/）
 ros2 launch inspect_rl_avoidance rl_avoidance.launch.py
 
-# 6. 启动跨楼层巡检任务（1→2→3→4→5→1 循环，每层2个巡检点）
+# 7. 启动跨楼层巡检任务（导航到点后自动视觉检测）
 ros2 launch inspect_floor_manager patrol_mission.launch.py
+```
+
+### 仅验证视觉（不依赖 ROS / 可在 Windows 上跑）
+
+```bash
+cd src/inspect_vision
+python -m inspect_vision.demo_offline --out-dir ./inspect_results_demo
 ```
 
 ## RL 避障模型训练（可选）
@@ -98,3 +112,5 @@ python3 -m inspect_rl_avoidance.export_onnx --model ./models/best_model.zip \
    min_obstacle_dist 与膨胀层冲突（贴墙目标）→ 0.35；weight_acc_lim_x
    过低（减速不坚决）→ 1.5。验证指标：nav_metrics 的 freeze_max_s 与
    path_smoothness 前后对比。
+7. **到点视觉闭环**：导航技能与检测技能解耦；`/inspect_point` 服务统一入口，
+   无相机时合成图兜底，有 YOLO 权重则升级，默认 OpenCV 规则可演示。

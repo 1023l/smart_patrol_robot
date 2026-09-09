@@ -267,15 +267,18 @@ global_costmap:
         topic_name: keepout_zones
         high_cost_value: 252
         zones:
-          glass_wall_east:        # 东侧玻璃墙（激光穿透重灾区）
+          glass_wall_east:        # 东侧玻璃墙（激光穿透重灾区，与 generate_maps 对齐）
             lethal: true
             points: [18.0, 2.0,  18.0, 14.0,  18.6, 14.0,  18.6, 2.0]
           glass_wall_west:
             lethal: true
             points: [1.4, 2.0,  1.4, 14.0,  2.0, 14.0,  2.0, 2.0]
-          elevator_shaft:         # 电梯井开口
+          elevator_shaft:         # 北侧电梯井（9~11m, 17.5~19m），厅口南侧可通行
             lethal: true
-            points: [9.0, 1.0,  9.0, 2.2,  10.6, 2.2,  10.6, 1.0]
+            points: [9.0, 17.5,  9.0, 19.0,  11.0, 19.0,  11.0, 17.5]
+          charging_area:          # 充电区：高代价可通行
+            lethal: false
+            points: [3.0, 1.0,  3.0, 2.5,  5.0, 2.5,  5.0, 1.0]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0

@@ -1,0 +1,12 @@
+# 到点视觉巡检节点参数
+inspect_node:
+  ros__parameters:
+    image_topic: "/camera/color/image_raw"
+    image_timeout_sec: 2.0
+    # 无相机/超时则生成合成图，保证仿真与无实物也能走通闭环
+    allow_synthetic: true
+    results_dir: "/tmp/inspect_results"
+    # 可选 YOLO 权重；文件不存在时自动回退 OpenCV 规则检测
+    yolo_model_path: ""
+    yolo_conf: 0.35
+    publish_debug_image: true

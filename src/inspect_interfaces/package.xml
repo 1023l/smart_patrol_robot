@@ -3,12 +3,13 @@
 <package format="3">
   <name>inspect_interfaces</name>
   <version>0.1.0</version>
-  <description>工业巡检机器人导航系统自定义接口：禁区管理消息与楼层切换服务</description>
+  <description>工业巡检机器人导航系统自定义接口：禁区、楼层切换与视觉巡检</description>
   <maintainer email="dev@example.com">inspect navigation</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <depend>builtin_interfaces</depend>
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>
   <depend>rosidl_default_generators</depend>

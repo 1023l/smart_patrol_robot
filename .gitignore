@@ -18,6 +18,10 @@ models/
 .vscode/
 .idea/
 
+# 视觉巡检本地演示产物
+inspect_results*/
+**/inspect_results_demo/
+
 # 系统文件
 .DS_Store
 Thumbs.db
