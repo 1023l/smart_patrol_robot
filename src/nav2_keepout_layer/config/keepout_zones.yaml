@@ -4,7 +4,7 @@
 keepout_layer:
   enabled: true
   topic_name: keepout_zones
-  high_cost_value: 252          # 非致命禁区的代价值（接近内切膨胀，规划器强回避）
+  high_cost_value: 252.0        # 非致命禁区的代价值（接近内切膨胀，规划器强回避）
 
   # 静态禁区：id → {lethal, points 展平顶点数组}
   # 顶点顺序不限（射线法对凸/凹多边形均正确），坐标为 map 系（米）

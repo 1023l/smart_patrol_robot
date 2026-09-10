@@ -62,6 +62,7 @@ public:
   void updateCosts(
     nav2_costmap_2d::Costmap2D & master_grid,
     int min_i, int min_j, int max_i, int max_j) override;
+  void reset() override;
 
   // 本层是否需要合并进主图（含动态变化时重新请求合并）
   bool isClearable() override {return false;}

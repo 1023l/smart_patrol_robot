@@ -1,6 +1,8 @@
 #include "nav2_keepout_layer/keepout_layer.hpp"
 
 #include <algorithm>
+#include <limits>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -28,14 +30,19 @@ void Zone::computeAABB()
 
 void KeepoutLayer::onInitialize()
 {
+  auto node = node_.lock();
+  if (!node) {
+    throw std::runtime_error("KeepoutLayer: failed to lock lifecycle node");
+  }
+
   // 声明并读取参数
   declareParameter("topic_name", rclcpp::ParameterValue(topic_name_));
   declareParameter("high_cost_value", rclcpp::ParameterValue(high_cost_value_));
   declareParameter("enabled", rclcpp::ParameterValue(true));
 
-  node_->get_parameter(name_ + "." + "topic_name", topic_name_);
-  node_->get_parameter(name_ + "." + "high_cost_value", high_cost_value_);
-  node_->get_parameter(name_ + "." + "enabled", enabled_);
+  node->get_parameter(name_ + "." + "topic_name", topic_name_);
+  node->get_parameter(name_ + "." + "high_cost_value", high_cost_value_);
+  node->get_parameter(name_ + "." + "enabled", enabled_);
 
   // YAML 静态禁区加载
   loadStaticZones();
@@ -44,18 +51,29 @@ void KeepoutLayer::onInitialize()
   rclcpp::QoS qos(rclcpp::KeepLast(10));
   qos.transient_local();   // 与地图类静态发布一致，方便调试工具晚接入也能收到
   qos.reliable();
-  zone_sub_ = node_->create_subscription<inspect_interfaces::msg::KeepoutZone>(
+  zone_sub_ = node->create_subscription<inspect_interfaces::msg::KeepoutZone>(
     topic_name_, qos,
     std::bind(&KeepoutLayer::onZoneMsg, this, std::placeholders::_1));
 
   RCLCPP_INFO(
-    node_->get_logger(),
+    node->get_logger(),
     "KeepOutZone 禁区层已初始化: 静态禁区 %zu 个，动态话题 %s",
     zones_.size(), topic_name_.c_str());
 }
 
+void KeepoutLayer::reset()
+{
+  // 本层禁区来自配置/话题，不随 clear costmap 清空；仅标记需要重绘
+  current_ = false;
+}
+
 void KeepoutLayer::loadStaticZones()
 {
+  auto node = node_.lock();
+  if (!node) {
+    return;
+  }
+
   // 参数结构（nav2_params.yaml）：
   //   keepout_layer:
   //     ros__parameters:
@@ -66,28 +84,44 @@ void KeepoutLayer::loadStaticZones()
   //         elevator_shaft:
   //           lethal: true
   //           points: [...]
+  // ROS2 嵌套字典不会直接变成 string[]，这里用参数前缀枚举子参数名。
   std::vector<std::string> zone_ids;
-  if (!node_->has_parameter(name_ + ".zones")) {
-    return;  // 无静态禁区配置，仅依赖话题动态管理
+  const auto names = node->list_parameters({name_ + ".zones"}, 3);
+  const std::string zones_prefix = name_ + ".zones.";
+  for (const auto & pname : names.names) {
+    if (pname.rfind(zones_prefix, 0) != 0) {
+      continue;
+    }
+    // 取 zones.<id>.xxx 中的 <id>
+    const std::string rest = pname.substr(zones_prefix.size());
+    const auto dot = rest.find('.');
+    if (dot == std::string::npos) {
+      continue;
+    }
+    const std::string zid = rest.substr(0, dot);
+    if (std::find(zone_ids.begin(), zone_ids.end(), zid) == zone_ids.end()) {
+      zone_ids.push_back(zid);
+    }
   }
-  node_->get_parameter(name_ + ".zones", zone_ids);
 
   for (const auto & zid : zone_ids) {
     const std::string prefix = name_ + ".zones." + zid;
     Zone z;
     z.id = zid;
 
-    declareParameterIfNotDeclared(prefix + ".lethal", rclcpp::ParameterValue(true));
-    declareParameterIfNotDeclared(prefix + ".points", rclcpp::ParameterValue(std::vector<double>{}));
+    nav2_util::declare_parameter_if_not_declared(
+      node, prefix + ".lethal", rclcpp::ParameterValue(true));
+    nav2_util::declare_parameter_if_not_declared(
+      node, prefix + ".points", rclcpp::ParameterValue(std::vector<double>{}));
 
-    node_->get_parameter(prefix + ".lethal", z.lethal);
+    node->get_parameter(prefix + ".lethal", z.lethal);
     std::vector<double> pts;
-    node_->get_parameter(prefix + ".points", pts);
+    node->get_parameter(prefix + ".points", pts);
 
     // 顶点展平数组 → Point 序列（奇偶坐标交替）
     if (pts.size() < 6 || pts.size() % 2 != 0) {
       RCLCPP_WARN(
-        node_->get_logger(),
+        node->get_logger(),
         "静态禁区 %s 顶点数非法（需>=3个顶点且坐标成对），跳过", zid.c_str());
       continue;
     }
@@ -101,17 +135,20 @@ void KeepoutLayer::loadStaticZones()
     z.computeAABB();
     zones_[zid] = z;
     RCLCPP_INFO(
-      node_->get_logger(), "静态禁区已加载: %s（%zu 顶点，%s）",
+      node->get_logger(), "静态禁区已加载: %s（%zu 顶点，%s）",
       zid.c_str(), z.polygon.size(), z.lethal ? "致命" : "高代价");
   }
 }
 
 void KeepoutLayer::onZoneMsg(const inspect_interfaces::msg::KeepoutZone::SharedPtr msg)
 {
+  auto node = node_.lock();
   std::lock_guard<std::mutex> lock(zones_mutex_);
   if (msg->action == inspect_interfaces::msg::KeepoutZone::REMOVE) {
     if (zones_.erase(msg->zone_id) > 0) {
-      RCLCPP_INFO(node_->get_logger(), "禁区已移除: %s", msg->zone_id.c_str());
+      if (node) {
+        RCLCPP_INFO(node->get_logger(), "禁区已移除: %s", msg->zone_id.c_str());
+      }
       requestRemap();
     }
     return;
@@ -119,8 +156,10 @@ void KeepoutLayer::onZoneMsg(const inspect_interfaces::msg::KeepoutZone::SharedP
 
   // ADD：同 id 重复添加等于更新顶点（话题端不用先 REMOVE 再 ADD）
   if (msg->polygon.size() < 3) {
-    RCLCPP_WARN(
-      node_->get_logger(), "禁区 %s 顶点数<3，忽略", msg->zone_id.c_str());
+    if (node) {
+      RCLCPP_WARN(
+        node->get_logger(), "禁区 %s 顶点数<3，忽略", msg->zone_id.c_str());
+    }
     return;
   }
   Zone z;
@@ -129,9 +168,11 @@ void KeepoutLayer::onZoneMsg(const inspect_interfaces::msg::KeepoutZone::SharedP
   z.polygon = msg->polygon;
   z.computeAABB();
   zones_[msg->zone_id] = z;
-  RCLCPP_INFO(
-    node_->get_logger(), "禁区已添加/更新: %s（%zu 顶点，%s）",
-    msg->zone_id.c_str(), z.polygon.size(), z.lethal ? "致命" : "高代价");
+  if (node) {
+    RCLCPP_INFO(
+      node->get_logger(), "禁区已添加/更新: %s（%zu 顶点，%s）",
+      msg->zone_id.c_str(), z.polygon.size(), z.lethal ? "致命" : "高代价");
+  }
   requestRemap();
 }
 
@@ -173,11 +214,15 @@ void KeepoutLayer::updateCosts(
   int min_i, int min_j, int max_i, int max_j)
 {
   if (!enabled_) {
+    current_ = true;
     return;
   }
 
   std::lock_guard<std::mutex> lock(zones_mutex_);
   if (zones_.empty()) {
+    // Layer::current_ 初始为 false。若不置 true，planner_server 会永久等待
+    // costmap current，表现为目标已接收但既不规划也不报错。
+    current_ = true;
     return;
   }
 
@@ -226,6 +271,7 @@ void KeepoutLayer::updateCosts(
       }
     }
   }
+  current_ = true;
 }
 
 bool KeepoutLayer::pointInPolygon(double x, double y, const Zone & zone)

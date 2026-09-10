@@ -46,7 +46,12 @@ amcl:
     z_rand: 0.5
     z_short: 0.05
     scan_topic: scan
-    set_initial_pose: false
+    set_initial_pose: true
+    initial_pose:
+      x: 5.0
+      y: 5.0
+      z: 0.0
+      yaw: 0.0
 
 bt_navigator:
   ros__parameters:
@@ -138,50 +143,48 @@ controller_server:
       xy_goal_tolerance: 0.15       # 与 TEB 调参记录一致（终点震荡修复）
       yaw_goal_tolerance: 0.2
 
-    # ---- TEB 局部控制器（调参记录见 inspect_speed_adapter/config/teb_controller.yaml）----
+    # ---- 局部控制器：先用 Nav2 自带 DWB（可直接 apt 安装）----
+    # TEB 调参记录仍保留在 inspect_speed_adapter/config/teb_controller.yaml，
+    # 待 teb_local_planner 源码编进工作区后再切回。
     FollowPath:
-      plugin: "teb_local_planner::TebLocalPlannerROS"
-      teb_autosize: true
-      dt_ref: 0.3
-      dt_hysteresis: 0.1
-      max_samples: 500
-      global_plan_overwrite_orientation: true
-      # 速度与加速度约束（终点震荡根因1修复段）
+      plugin: "dwb_core::DWBLocalPlanner"
+      debug_trajectory_details: True
+      min_vel_x: 0.0
+      min_vel_y: 0.0
       max_vel_x: 0.5
-      max_vel_x_backwards: 0.2
       max_vel_y: 0.0
       max_vel_theta: 1.2
-      acc_lim_x: 0.5                 # 匹配实机减速能力
+      min_speed_xy: 0.0
+      max_speed_xy: 0.5
+      min_speed_theta: 0.0
+      acc_lim_x: 0.5
+      acc_lim_y: 0.0
       acc_lim_theta: 1.5
-      min_turning_radius: 0.0
-      # 目标容差（终点震荡根因1修复段）
+      decel_lim_x: -0.5
+      decel_lim_y: 0.0
+      decel_lim_theta: -1.5
+      vx_samples: 20
+      vy_samples: 5
+      vtheta_samples: 20
+      sim_time: 1.7
+      linear_granularity: 0.05
+      angular_granularity: 0.025
+      transform_tolerance: 0.2
       xy_goal_tolerance: 0.15
-      yaw_goal_tolerance: 0.2
-      free_goal: false
-      # 机器人模型
-      footprint_model:
-        type: "circular"
-        radius: 0.22
-      # 障碍约束（终点震荡根因2修复段）
-      min_obstacle_dist: 0.35
-      inflation_dist: 0.6
-      include_costmap_obstacles: true
-      costmap_obstacles_behind_robot_dist: 1.0
-      obstacle_poses_affected: 30
-      # 优化权重（终点震荡根因3修复段）
-      weight_max_vel_x: 2.0
-      weight_max_vel_theta: 1.0
-      weight_acc_lim_x: 1.5
-      weight_acc_lim_theta: 1.0
-      weight_kinematics_nh: 1000.0
-      weight_kinematics_forward_drive: 1.0
-      weight_kinematics_turning_radius: 1.0
-      weight_optimaltime: 1.0
-      weight_shortest_path: 0.0
-      weight_obstacle: 100.0
-      weight_inflation: 0.2
-      weight_viapoint: 1.0
-      oscillation_recovery: true
+      trans_stopped_velocity: 0.1
+      short_circuit_trajectory_evaluation: True
+      stateful: True
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      BaseObstacle.scale: 0.02
+      PathAlign.scale: 32.0
+      PathAlign.forward_point_distance: 0.1
+      GoalAlign.scale: 24.0
+      GoalAlign.forward_point_distance: 0.1
+      PathDist.scale: 32.0
+      GoalDist.scale: 24.0
+      RotateToGoal.scale: 32.0
+      RotateToGoal.slowing_factor: 5.0
+      RotateToGoal.lookahead_time: -1.0
 
 local_costmap:
   local_costmap:
@@ -222,8 +225,7 @@ local_costmap:
         plugin: "nav2_keepout_layer/KeepoutLayer"
         enabled: true
         topic_name: keepout_zones
-        high_cost_value: 252
-        zones: {}
+        high_cost_value: 252.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
@@ -265,7 +267,7 @@ global_costmap:
         plugin: "nav2_keepout_layer/KeepoutLayer"
         enabled: true
         topic_name: keepout_zones
-        high_cost_value: 252
+        high_cost_value: 252.0
         zones:
           glass_wall_east:        # 东侧玻璃墙（激光穿透重灾区，与 generate_maps 对齐）
             lethal: true

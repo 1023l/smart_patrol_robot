@@ -297,9 +297,8 @@ nav_msgs::msg::Path GradientAStarPlanner::indicesToPath(
 
   const unsigned int size_x = costmap_->getSizeInCellsX();
   const double resolution = costmap_->getResolution();
-  double origin_x, origin_y;
-  costmap_->getMapCoordinates(
-    static_cast<unsigned int>(0), static_cast<unsigned int>(0), origin_x, origin_y);
+  const double origin_x = costmap_->getOriginX();
+  const double origin_y = costmap_->getOriginY();
 
   // 按相邻点最小间距降采样，控制路径点规模
   const double min_gap2 = interpolation_resolution_ * interpolation_resolution_;

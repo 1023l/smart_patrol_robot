@@ -6,20 +6,19 @@
   + 七扇区调速 + 导航指标 + 楼层管理
 
 用法：
-  # 首次使用先生成 5 层地图（Ubuntu + Python3 + numpy）
-  #   python3 scripts/generate_maps.py --output-dir maps/
-  ros2 launch inspect_navigation inspect_navigation.launch.py [floor:=1]
+  # 推荐一键：Gazebo + Nav2 + RViz
+  ros2 launch inspect_navigation full_sim.launch.py
 
-配套：
-  Gazebo 仿真机器人（含雷达）另起：
-    ros2 launch inspect_navigation gazebo_sim.launch.py
+  # 或分终端：
+  #   ros2 launch inspect_navigation gazebo_sim.launch.py
+  #   ros2 launch inspect_navigation inspect_navigation.launch.py
 """
 
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, GroupAction, TimerAction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -56,27 +55,18 @@ def generate_launch_description():
             'use_composition', default_value='False',
             description='使用容器组合模式'),
         DeclareLaunchArgument(
-            'use_rviz', default_value='false',
+            'use_rviz', default_value='true',
             description='启动 RViz 可视化'),
     ]
 
-    # 初始楼层地图路径（floor_manager 会通过 load_map 动态切换后续楼层）
-    initial_map = os.path.join(pkg_share, 'maps', ['floor', '.yaml'])
-
-    # 按参数拼接初始地图路径（launch 表达式能力有限，这里直接用 floor 参数
-    # 的字符串拼接在 Node 的 map 参数里做不了，改用 map_server 的 yaml 参数）
-    # 简化处理：map_server 先加载 floor1，跨层由 floor_manager 接管
+    # map_server 先加载 floor1，跨层由 floor_manager 通过 load_map 接管
     default_map = os.path.join(pkg_share, 'maps', 'floor1.yaml')
 
     # ---- Nav2 生命周期节点组（标准 bringup 风格）----
-    lifecycle_nodes = [
-        'controller_server',
-        'smoother_server',
-        'planner_server',
-        'behavior_server',
-        'bt_navigator',
-        'waypoint_follower',
-        'velocity_smoother',
+    # 定位与导航必须分开管理。若导航插件配置失败，不能连带阻塞地图和 AMCL。
+    localization_nodes = [
+        'map_server',
+        'amcl',
     ]
 
     # map_server：初始加载 floor1（后续楼层由 floor_manager 的 load_map 切换）
@@ -98,6 +88,7 @@ def generate_launch_description():
             name='controller_server',
             output='screen',
             parameters=[params_file],
+            remappings=[('cmd_vel', 'cmd_vel_nav')],
         ),
         Node(
             package='nav2_smoother',
@@ -119,6 +110,7 @@ def generate_launch_description():
             name='behavior_server',
             output='screen',
             parameters=[params_file],
+            remappings=[('cmd_vel', 'cmd_vel_nav')],
         ),
         Node(
             package='nav2_bt_navigator',
@@ -152,16 +144,31 @@ def generate_launch_description():
         ),
     ])
 
-    # 生命周期管理器：统一激活 Nav2 节点
-    lifecycle_manager = Node(
+    # 定位生命周期管理器：地图和 AMCL 独立上线，不受规划/控制插件影响
+    lifecycle_manager_localization = Node(
         package='nav2_lifecycle_manager',
         executable='lifecycle_manager',
-        name='lifecycle_manager_navigation',
+        name='lifecycle_manager_localization',
         output='screen',
         parameters=[
             {'use_sim_time': use_sim_time},
             {'autostart': autostart},
-            {'node_names': lifecycle_nodes + ['map_server']},
+            {'node_names': localization_nodes},
+        ],
+    )
+
+    # WSL/Gazebo 同时启动时，标准管理器可能在 controller_server 配置完成前
+    # 超时，导致整条导航链停在 unconfigured。改为延迟后逐节点顺序激活。
+    activate_navigation = TimerAction(
+        period=5.0,
+        actions=[
+            ExecuteProcess(
+                cmd=[
+                    'bash',
+                    os.path.join(pkg_share, 'scripts', 'activate_navigation.sh'),
+                ],
+                output='screen',
+            )
         ],
     )
 
@@ -214,12 +221,14 @@ def generate_launch_description():
         }],
     )
 
-    # RViz（可选）
+    # RViz（默认开；必须 use_sim_time，否则激光/代价地图时间戳对不上）
     rviz = Node(
         package='rviz2',
         executable='rviz2',
         name='rviz2',
+        output='screen',
         arguments=['-d', os.path.join(pkg_share, 'config', 'inspect_nav.rviz')],
+        parameters=[{'use_sim_time': use_sim_time}],
         condition=IfCondition(use_rviz),
     )
 
@@ -230,7 +239,8 @@ def generate_launch_description():
             amcl,
             speed_adapter_group,
             floor_manager,
-            lifecycle_manager,
+            lifecycle_manager_localization,
+            activate_navigation,
             rviz,
         ]
     )

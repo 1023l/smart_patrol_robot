@@ -162,18 +162,20 @@ private:
     for (const auto & st : msg->status_list) {
       const std::string gid = uuidToHex(st.goal_info.goal_id.uuid);
       // 有任务处于非终态 → 当前有活动目标（供冻结检测使用）
-      if (st.status == st.ACCEPTED || st.status == st.EXECUTING ||
-        st.status == st.CANCELING)
+      if (st.status == action_msgs::msg::GoalStatus::STATUS_ACCEPTED ||
+        st.status == action_msgs::msg::GoalStatus::STATUS_EXECUTING ||
+        st.status == action_msgs::msg::GoalStatus::STATUS_CANCELING)
       {
         goal_active_ = true;
       }
       // 终态只统计一次
-      if (st.status == st.SUCCEEDED || st.status == st.ABORTED ||
-        st.status == st.CANCELED || st.status == st.PREEMPTED || st.status == st.LOST)
+      if (st.status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED ||
+        st.status == action_msgs::msg::GoalStatus::STATUS_ABORTED ||
+        st.status == action_msgs::msg::GoalStatus::STATUS_CANCELED)
       {
         if (seen_goal_ids_.insert(gid).second) {  // 新出现的 goal_id
           task_total_++;
-          if (st.status == st.SUCCEEDED) {
+          if (st.status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED) {
             task_succeeded_++;
           }
         }
