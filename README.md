@@ -94,7 +94,7 @@ python3 -m inspect_rl_avoidance.export_onnx --model ./models/best_model.zip \
     --output src/inspect_rl_avoidance/config/rl_policy.onnx
 ```
 
-## 关键设计决策（面试索引）
+## 关键设计决策
 
 1. **连续梯度代价 A\***：`traversal = dist × (1 + cost_weight × cost/253)`，
    复用 InflationLayer 输出做连续代价，不需要自建距离场；octile 启发式
