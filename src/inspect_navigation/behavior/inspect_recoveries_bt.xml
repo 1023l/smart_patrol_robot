@@ -1,0 +1,86 @@
+<?xml version="1.0"?>
+<!--
+  =====================================================================
+  工业巡检导航行为树：四级递进脱困策略（navigate_to_pose 版）
+  ---------------------------------------------------------------------
+  解决的痛点：窄通道场景机器人容易卡死，Nav2 原生恢复策略只有
+  "清代价地图 + 自旋"两级，窄通道里自旋反而可能撞墙，脱困失败率极高。
+
+  四级递进设计（逐级升级，成本从低到高）：
+    第一级 清代价地图：清除动态层中的幽灵障碍（误检/残影），
+                    零运动成本，多数误报卡死在此解决；
+    第二级 后退脱困：沿进入方向反向退 0.30m（窄通道里"原路退出"
+                    比原地转向安全，退出后重新规划绕行路线）；
+    第三级 原地旋转重定向：旋转 ±90° 改变朝向后重规划，
+                    适用于开阔区被单侧障碍锁死的场景；
+    第四级 等待传感器刷新：等待 2s 让动态障碍（人流）自行通过，
+                    兜底避免与行人博弈。
+
+  实现要点（面试讲这个）：
+  1. 四级不是并列 Fallback 而是嵌套 RecoveryNode：外层失败才触发
+     更内层，恢复成本单调递增，避免"上来就自旋"的过度反应；
+  2. 每级恢复后 RateController 节流（1Hz）重规划，防止规划风暴；
+  3. 恢复动作本身有次数上限（goal_reached 之外的失败计数），
+     四级全失败才 ABORT，把"任务失败"的判定门槛抬到最高；
+  4. 后退距离 0.30m / 旋转 ±90° 均按 0.5m/s 巡检机器人窄通道
+     (1.2m 通道宽、机器人直径 0.44m) 的余量标定。
+  =====================================================================
+-->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <!-- 任务入口：故障恢复计数器（四级全失败后向上抛） -->
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      <PipelineSequence name="NavigateWithReplanning">
+
+        <!-- 任务级重规划控制：1Hz 节流 + 距离触发 -->
+        <RateController hz="1.0">
+          <RecoveryNode number_of_retries="1" name="ComputePathToPoseRecovery">
+            <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Context"
+                               service_name="global_costmap/clear_entirely_global_costmap"/>
+          </RecoveryNode>
+        </RateController>
+
+        <!-- ==== 四级递进脱困 ====
+             局部控制（含 TEB 输出、七扇区限速、RL 避障接管）失败时，
+             逐级进入恢复；每级恢复后回到 PipelineSequence 重新规划。-->
+        <ReactiveFallback name="FollowPathWithRecovery">
+
+          <!-- 第 1~4 级嵌套：最外层先尝试正常跟随 -->
+          <RecoveryNode number_of_retries="1" name="FollowPathRecoveryLv1">
+            <FollowPath path="{path}" controller_id="FollowPath"/>
+
+            <!-- 第一级：清代价地图（清局部图动态层，零运动成本） -->
+            <RecoveryNode number_of_retries="1" name="RecoveryLv1_ClearCostmap">
+              <ClearEntireCostmap name="ClearLocalCostmap"
+                                  service_name="local_costmap/clear_entirely_local_costmap"/>
+              <!-- 第一级失败 → 第二级：后退脱困（沿进入方向原路退出窄通道） -->
+              <RecoveryNode number_of_retries="1" name="RecoveryLv2_BackUp">
+                <BackUp backup_dist="0.30" backup_speed="0.10"/>
+                <!-- 第二级失败 → 第三级：原地旋转重定向（开阔区解锁朝向） -->
+                <RecoveryNode number_of_retries="1" name="RecoveryLv3_Spin">
+                  <Spin spin_dist="1.57"/>
+                  <!-- 第三级失败 → 第四级：等待传感器刷新（人流自行通过，兜底） -->
+                  <RecoveryNode number_of_retries="1" name="RecoveryLv4_Wait">
+                    <Wait wait_duration="2"/>
+                    <!-- 全部失败：向上层 NavigateRecovery 抛出，由其决定重试或终止 -->
+                    <AlwaysFailure name="AllLevelsFailed"/>
+                  </RecoveryNode>
+                </RecoveryNode>
+              </RecoveryNode>
+            </RecoveryNode>
+          </RecoveryNode>
+
+        </ReactiveFallback>
+
+      </PipelineSequence>
+      <!-- 任务级兜底：管道整体失败时，先清全局图再重试（最多 6 次） -->
+      <ReactiveFallback name="PipelineFailureFallback">
+        <ClearEntireCostmap name="ClearGlobalCostmap-Final"
+                            service_name="global_costmap/clear_entirely_global_costmap"/>
+        <ClearEntireCostmap name="ClearLocalCostmap-Final"
+                            service_name="local_costmap/clear_entirely_local_costmap"/>
+      </ReactiveFallback>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

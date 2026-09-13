@@ -1,0 +1,8 @@
+image: floor3.pgm
+resolution: 0.05
+origin: [0.0, 0.0, 0.0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25
+# 楼层: 3
+# 电梯口（AMCL 重定位点）: x=9.8, y=16.5

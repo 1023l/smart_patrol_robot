@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>inspect_speed_adapter</name>
+  <version>0.1.0</version>
+  <description>
+    巡检机器人局部运动优化模块：基于 360° 激光雷达七扇区分区感知的
+    自适应调速节点（通过 Nav2 speed_limit 标准接口作用于 TEB 控制器），
+    以及导航指标观测节点（规划时延 / 任务完成率 / 路径平滑度）。
+    附带 TEB 控制器终点震荡调参参考配置。
+  </description>
+  <maintainer email="dev@example.com">inspect navigation</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>action_msgs</depend>
+  <depend>nav2_msgs</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

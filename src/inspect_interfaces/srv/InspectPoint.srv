@@ -1,0 +1,10 @@
+# 到点后触发一次视觉巡检：抓图 → 检测 → 落盘 → 返回结果
+string point_name
+uint8 floor
+string task                # gauge / indicator / extinguisher；空则按默认规则
+---
+bool success
+string status              # NORMAL / ABNORMAL / UNKNOWN
+string message
+string image_path
+float32 confidence
